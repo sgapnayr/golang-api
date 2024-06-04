@@ -4,21 +4,18 @@ executors:
   golang-executor:
     docker:
       - image: circleci/golang:1.18
-    working_directory: ~/repo
+    working_directory: ~/repo/Software/golang-api
 
   node-executor:
     docker:
       - image: circleci/node:16
-    working_directory: ~/repo
+    working_directory: ~/repo/Software/client
 
 jobs:
   build-and-test-go:
     executor: golang-executor
     steps:
       - checkout
-      - run:
-          name: Change to Golang Directory
-          command: cd golang-api
       - run:
           name: Install Dependencies
           command: go mod download
@@ -31,9 +28,6 @@ jobs:
     steps:
       - checkout
       - run:
-          name: Change to Client Directory
-          command: cd client
-      - run:
           name: Install Dependencies
           command: npm install
       - run:
@@ -44,9 +38,6 @@ jobs:
     executor: node-executor
     steps:
       - checkout
-      - run:
-          name: Change to Client Directory
-          command: cd client
       - run:
           name: Install Dependencies
           command: npm install
