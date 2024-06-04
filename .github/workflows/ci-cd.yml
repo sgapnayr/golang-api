@@ -62,4 +62,4 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: us-east-2
         run: |
-          aws ecs update-service --cluster golang-api --service arn:aws:ecs:us-east-2:370306632958:cluster/golang-api --force-new-deployment --region us-east-2
+          aws ecs update-service --cluster golang-api --service golang-api --force-new-deployment --region us-east-2
