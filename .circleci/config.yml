@@ -4,12 +4,12 @@ executors:
   golang-executor:
     docker:
       - image: circleci/golang:1.20
-    working_directory: ~/repo/Software/golang-api
+    working_directory: ~//Users/ryanpaglione/Desktop/Software/golang-api
 
   node-executor:
     docker:
       - image: circleci/node:14
-    working_directory: ~/repo/Software/client
+    working_directory: ~//Users/ryanpaglione/Desktop/Software/golang-api/client
 
 jobs:
   build-and-test-go:
