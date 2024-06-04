@@ -9,7 +9,7 @@ executors:
   node-executor:
     docker:
       - image: circleci/node:14
-    working_directory: ~//Users/ryanpaglione/Desktop/Software/golang-api/client
+    working_directory: ~/Users/ryanpaglione/Desktop/Software/golang-api/client
 
 jobs:
   build-and-test-go:
