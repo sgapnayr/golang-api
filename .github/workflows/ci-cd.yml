@@ -38,30 +38,12 @@ jobs:
           node-version: "18"
 
       - name: Install frontend dependencies
-        run: |
-          cd client
-          npm install
+        run: npm install
+        working-directory: ./client
 
       - name: Build frontend
-        run: |
-          cd client
-          npm run build
+        run: npm run build
+        working-directory: ./client
 
       - name: Log in to Docker Hub
         run: echo "${{ secrets.PASSWORD }}" | docker login ${{ secrets.REGISTRY }} -u ${{ secrets.USERNAME }} --password-stdin
-
-      - name: Build and push Docker images
-        run: |
-          docker-compose build
-          docker tag golang-api-api:latest ${{ secrets.USERNAME }}/golang-api-api:latest
-          docker tag golang-api-frontend:latest ${{ secrets.USERNAME }}/golang-api-frontend:latest
-          docker push ${{ secrets.USERNAME }}/golang-api-api:latest
-          docker push ${{ secrets.USERNAME }}/golang-api-frontend:latest
-
-      - name: Deploy to AWS ECS
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ secrets.AWS_REGION }}
-        run: |
-          aws ecs update-service --cluster my-cluster --service my-service --force-new-deployment

@@ -2,8 +2,10 @@ version: "3.8"
 
 services:
   api:
-    build: ./server
-    container_name: golang-api_api
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    image: golang-api-api:latest
     ports:
       - "8080:8080"
 
@@ -11,7 +13,7 @@ services:
     build:
       context: ./client
       dockerfile: Dockerfile
-    container_name: golang-api_frontend
+    image: golang-api-frontend:latest
     ports:
       - "3000:3000"
     depends_on:
