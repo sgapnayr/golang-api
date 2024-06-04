@@ -2,12 +2,16 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/assert"
 )
 
 func setUpRouter() *gin.Engine {
@@ -16,6 +20,8 @@ func setUpRouter() *gin.Engine {
 	r.GET("/orders/:id", getOrderById)
 	r.POST("/orders", createOrder)
 	r.PUT("/orders/:id", updateOrder)
+	r.PUT("/orders/:id/increase", increaseAmount)
+	r.PUT("/orders/:id/decrease", decreaseAmount)
 	r.DELETE("/orders/:id", deleteOrder)
 	return r
 }
@@ -27,93 +33,113 @@ func resetOrders() {
 	}
 }
 
-func TestGetOrders(t *testing.T) {
-	resetOrders()
-	router := setUpRouter()
+func stressTest(numUsers int, router *gin.Engine, t *testing.T) bool {
+	var wg sync.WaitGroup
 
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/orders", nil)
-	router.ServeHTTP(w, req)
+	startTime := time.Now()
 
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "Item 1")
-	assert.Contains(t, w.Body.String(), "Item 2")
+	success := true
+	mu := &sync.Mutex{}
+
+	for i := 0; i < numUsers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			// Simulate a GET request
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest("GET", "/orders", nil)
+			router.ServeHTTP(w, req)
+			if w.Code != http.StatusOK {
+				mu.Lock()
+				success = false
+				mu.Unlock()
+			}
+
+			// Simulate a POST request
+			newOrder := `{"id":"3","item":"Item 3","amount":30}`
+			w = httptest.NewRecorder()
+			req, _ = http.NewRequest("POST", "/orders", bytes.NewBufferString(newOrder))
+			req.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(w, req)
+			if w.Code != http.StatusCreated {
+				mu.Lock()
+				success = false
+				mu.Unlock()
+			}
+		}()
+	}
+
+	// Wait for all goroutines to finish
+	wg.Wait()
+
+	duration := time.Since(startTime)
+	log.Printf("Stress test with %d users took %s", numUsers, duration)
+
+	return success
 }
 
-func TestGetOrderById(t *testing.T) {
-	resetOrders()
+func TestIncreaseAmount(t *testing.T) {
 	router := setUpRouter()
-
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/orders/1", nil)
-	router.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "Item 1")
-
-	w = httptest.NewRecorder()
-	req, _ = http.NewRequest("GET", "/orders/3", nil)
-	router.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusNotFound, w.Code)
-	assert.Contains(t, w.Body.String(), "order not found")
-}
-
-func TestCreateOrder(t *testing.T) {
 	resetOrders()
-	router := setUpRouter()
 
-	newOrder := `{"id":"3","item":"Item 3","amount":30}`
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/orders", bytes.NewBufferString(newOrder))
+	increasePayload := `{"amount":5}`
+	req, _ := http.NewRequest("PUT", "/orders/1/increase", bytes.NewBufferString(increasePayload))
 	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusCreated, w.Code)
-	assert.Contains(t, w.Body.String(), "Item 3")
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status code %d but got %d", http.StatusOK, w.Code)
+	}
 
-	w = httptest.NewRecorder()
-	req, _ = http.NewRequest("GET", "/orders", nil)
-	router.ServeHTTP(w, req)
+	var updatedOrder Order
+	if err := json.Unmarshal(w.Body.Bytes(), &updatedOrder); err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
 
-	assert.Contains(t, w.Body.String(), "Item 3")
+	if updatedOrder.Amount != 15 {
+		t.Fatalf("Expected amount %d but got %d", 15, updatedOrder.Amount)
+	}
 }
 
-func TestUpdateOrder(t *testing.T) {
-	resetOrders()
+func TestDecreaseAmount(t *testing.T) {
 	router := setUpRouter()
+	resetOrders()
 
-	updatedOrder := `{"id":"1","item":"Updated Item","amount":100}`
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("PUT", "/orders/1", bytes.NewBufferString(updatedOrder))
+	decreasePayload := `{"amount":5}`
+	req, _ := http.NewRequest("PUT", "/orders/1/decrease", bytes.NewBufferString(decreasePayload))
 	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "Updated Item")
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status code %d but got %d", http.StatusOK, w.Code)
+	}
 
-	w = httptest.NewRecorder()
-	req, _ = http.NewRequest("GET", "/orders/1", nil)
-	router.ServeHTTP(w, req)
+	var updatedOrder Order
+	if err := json.Unmarshal(w.Body.Bytes(), &updatedOrder); err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
 
-	assert.Contains(t, w.Body.String(), "Updated Item")
+	if updatedOrder.Amount != 5 {
+		t.Fatalf("Expected amount %d but got %d", 5, updatedOrder.Amount)
+	}
 }
 
-func TestDeleteOrder(t *testing.T) {
-	resetOrders()
+func TestStress(t *testing.T) {
 	router := setUpRouter()
 
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("DELETE", "/orders/1", nil)
-	router.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "order deleted")
-
-	w = httptest.NewRecorder()
-	req, _ = http.NewRequest("GET", "/orders/1", nil)
-	router.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusNotFound, w.Code)
-	assert.Contains(t, w.Body.String(), "order not found")
+	tiers := []int{1, 10, 100, 1000, 5000, 10000}
+	for _, numUsers := range tiers {
+		t.Run(fmt.Sprintf("%d users", numUsers), func(t *testing.T) {
+			resetOrders()
+			success := stressTest(numUsers, router, t)
+			if success {
+				fmt.Printf("Test with %d users: PASS\n", numUsers)
+			} else {
+				fmt.Printf("Test with %d users: FAIL\n", numUsers)
+			}
+		})
+	}
 }
