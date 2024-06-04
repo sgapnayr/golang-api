@@ -19,7 +19,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v2
         with:
-          go-version: 1.20
+          go-version: 1.20 # Correct Go version format
 
       - name: Install Go dependencies
         run: go mod download
@@ -59,4 +59,4 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
         run: |
-          aws ecs update-service --cluster my-cluster --service my-service
+          aws ecs update-service --cluster my-cluster --service my-service --force-new-deployment
