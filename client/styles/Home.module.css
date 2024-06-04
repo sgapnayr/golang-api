@@ -16,6 +16,7 @@
 }
 
 .input {
+  color: black;
   flex: 1;
   padding: 10px;
   border: 1px solid #ccc;
@@ -80,4 +81,30 @@
 
 .deleteButton:hover {
   background-color: #c82333;
+}
+
+.increaseButton {
+  background-color: green;
+  color: white;
+  padding: 5px 10px;
+  margin-right: 5px;
+  border: none;
+  cursor: pointer;
+}
+
+.decreaseButton {
+  background-color: red;
+  color: white;
+  padding: 5px 10px;
+  margin-right: 5px;
+  border: none;
+  cursor: pointer;
+}
+
+.deleteButton {
+  background-color: black;
+  color: white;
+  padding: 5px 10px;
+  border: none;
+  cursor: pointer;
 }

@@ -18,14 +18,6 @@ export default function Home() {
 
   useEffect(() => {
     fetchOrders();
-    const ws = new WebSocket("ws://localhost:8080/ws");
-
-    ws.onmessage = (event) => {
-      const newOrder = JSON.parse(event.data);
-      setOrders((prevOrders) => [...prevOrders, newOrder]);
-    };
-
-    return () => ws.close();
   }, []);
 
   const fetchOrders = async () => {
@@ -43,6 +35,10 @@ export default function Home() {
       await axios.post("http://localhost:8080/orders", newOrder, {
         headers: { "Content-Type": "application/json" },
       });
+      fetchOrders(); // Refresh the order list
+      setItem("");
+      setAmount(0);
+      setId("");
     } catch (error) {
       console.error("Error creating order:", error);
     }
@@ -54,6 +50,7 @@ export default function Home() {
       await axios.put(`http://localhost:8080/orders/${id}`, updatedOrder, {
         headers: { "Content-Type": "application/json" },
       });
+      fetchOrders(); // Refresh the order list
     } catch (error) {
       console.error("Error updating order:", error);
     }
@@ -62,8 +59,39 @@ export default function Home() {
   const deleteOrder = async (id: string) => {
     try {
       await axios.delete(`http://localhost:8080/orders/${id}`);
+      fetchOrders(); // Refresh the order list
     } catch (error) {
       console.error("Error deleting order:", error);
+    }
+  };
+
+  const increaseAmount = async (id: string, amount: number) => {
+    try {
+      await axios.put(
+        `http://localhost:8080/orders/${id}/increase`,
+        { amount },
+        {
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+      fetchOrders(); // Refresh the order list
+    } catch (error) {
+      console.error("Error increasing amount:", error);
+    }
+  };
+
+  const decreaseAmount = async (id: string, amount: number) => {
+    try {
+      await axios.put(
+        `http://localhost:8080/orders/${id}/decrease`,
+        { amount },
+        {
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+      fetchOrders(); // Refresh the order list
+    } catch (error) {
+      console.error("Error decreasing amount:", error);
     }
   };
 
@@ -104,6 +132,18 @@ export default function Home() {
             <div className={styles.cell}>{order.id}</div>
             <div className={styles.cell}>{order.item}</div>
             <div className={styles.cell}>{order.amount}</div>
+            <button
+              className={styles.increaseButton}
+              onClick={() => increaseAmount(order.id, 1)}
+            >
+              Increase Amount
+            </button>
+            <button
+              className={styles.decreaseButton}
+              onClick={() => decreaseAmount(order.id, 1)}
+            >
+              Decrease Amount
+            </button>
             <button
               className={styles.deleteButton}
               onClick={() => deleteOrder(order.id)}
