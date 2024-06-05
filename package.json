@@ -1,0 +1,19 @@
+{
+  "name": "golang-api",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start-server": "cd server && go run main.go",
+    "start-client": "cd client && npm run dev",
+    "start": "concurrently \"npm run start-server\" \"npm run start-client\"",
+    "postinstall": "cd client && npm install && cd .. && cd server && go mod tidy"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "concurrently": "^7.0.0"
+  }
+}
