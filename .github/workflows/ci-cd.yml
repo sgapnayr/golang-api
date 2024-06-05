@@ -55,3 +55,74 @@ jobs:
           docker tag golang-api-frontend:latest ${{ secrets.USERNAME }}/golang-api-frontend:latest
           docker push ${{ secrets.USERNAME }}/golang-api-api:latest
           docker push ${{ secrets.USERNAME }}/golang-api-frontend:latest
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Create ECS cluster
+        run: |
+          aws ecs create-cluster --cluster-name my-cluster
+
+      - name: Register Task Definition
+        id: task-def
+        run: |
+          TASK_DEFINITION=$(cat <<EOF
+          {
+            "family": "golang-api-task",
+            "networkMode": "awsvpc",
+            "requiresCompatibilities": [
+              "FARGATE"
+            ],
+            "cpu": "256",
+            "memory": "512",
+            "containerDefinitions": [
+              {
+                "name": "golang-api",
+                "image": "${{ secrets.REGISTRY }}/golang-api-api:latest",
+                "portMappings": [
+                  {
+                    "containerPort": 8080,
+                    "hostPort": 8080
+                  }
+                ],
+                "essential": true
+              },
+              {
+                "name": "golang-frontend",
+                "image": "${{ secrets.REGISTRY }}/golang-api-frontend:latest",
+                "portMappings": [
+                  {
+                    "containerPort": 80,
+                    "hostPort": 80
+                  }
+                ],
+                "essential": true
+              }
+            ]
+          }
+          EOF
+          )
+          echo "${TASK_DEFINITION}" > task-def.json
+          aws ecs register-task-definition --cli-input-json file://task-def.json
+          TASK_REVISION=$(aws ecs describe-task-definition --task-definition golang-api-task | jq -r '.taskDefinition.revision')
+          echo "TASK_REVISION=${TASK_REVISION}" >> $GITHUB_ENV
+
+      - name: Create ECS Service
+        run: |
+          aws ecs create-service --cluster my-cluster --service-name my-service \
+            --task-definition golang-api-task:${{ env.TASK_REVISION }} \
+            --desired-count 1 --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[subnet-abc123],securityGroups=[sg-abc123],assignPublicIp=ENABLED}" \
+            --load-balancers "targetGroupArn=arn:aws:elasticloadbalancing:us-east-2:123456789012:targetgroup/my-targets/1234567890abcdef,containerName=golang-api,containerPort=8080"
