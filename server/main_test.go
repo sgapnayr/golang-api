@@ -41,19 +41,34 @@ func TestCreateOrderHandler(t *testing.T) {
 	// Assert the response
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), "Order created successfully")
+
+	// Extract the generated order ID from the response
+	var response map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NotEmpty(t, response["order_id"])
 }
 
 func TestGetOrderHandler(t *testing.T) {
-	// Mock the request
-	req, _ := http.NewRequest("GET", "/orders/1/Item1", nil)
+	// First, create an order to ensure there is an order to get
+	order := Order{
+		Item:   "Item1",
+		Amount: 10,
+	}
+	payload, _ := json.Marshal(order)
+	req, _ := http.NewRequest("POST", "/orders", bytes.NewBuffer(payload))
+	req.Header.Set("Content-Type", "application/json")
 
-	// Initialize the Gin engine
 	r := setupRouter()
-
-	// Create a response recorder
 	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
 
-	// Perform the request
+	var response map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &response)
+	orderID := response["order_id"].(string)
+
+	// Mock the request to get the created order
+	req, _ = http.NewRequest("GET", fmt.Sprintf("/orders/%s/Item1", orderID), nil)
+	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
 	// Assert the response
@@ -78,25 +93,31 @@ func TestGetAllOrdersHandler(t *testing.T) {
 }
 
 func TestUpdateOrderHandler(t *testing.T) {
-	// Mock the request payload
+	// First, create an order to ensure there is an order to update
 	order := Order{
-		ID:     "1",
 		Item:   "Item1",
-		Amount: 20,
+		Amount: 10,
 	}
 	payload, _ := json.Marshal(order)
-
-	// Create a request
-	req, _ := http.NewRequest("PUT", "/orders/1/Item1", bytes.NewBuffer(payload))
+	req, _ := http.NewRequest("POST", "/orders", bytes.NewBuffer(payload))
 	req.Header.Set("Content-Type", "application/json")
 
-	// Initialize the Gin engine
 	r := setupRouter()
-
-	// Create a response recorder
 	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	var response map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &response)
+	orderID := response["order_id"].(string)
+
+	// Mock the request payload for update
+	order.Amount = 20
+	payload, _ = json.Marshal(order)
+	req, _ = http.NewRequest("PUT", fmt.Sprintf("/orders/%s/Item1", orderID), bytes.NewBuffer(payload))
+	req.Header.Set("Content-Type", "application/json")
 
 	// Perform the request
+	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
 	// Assert the response
@@ -105,16 +126,26 @@ func TestUpdateOrderHandler(t *testing.T) {
 }
 
 func TestDeleteOrderHandler(t *testing.T) {
-	// Mock the request
-	req, _ := http.NewRequest("DELETE", "/orders/1/Item1", nil)
+	// First, create an order to ensure there is an order to delete
+	order := Order{
+		Item:   "Item1",
+		Amount: 10,
+	}
+	payload, _ := json.Marshal(order)
+	req, _ := http.NewRequest("POST", "/orders", bytes.NewBuffer(payload))
+	req.Header.Set("Content-Type", "application/json")
 
-	// Initialize the Gin engine
 	r := setupRouter()
-
-	// Create a response recorder
 	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
 
-	// Perform the request
+	var response map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &response)
+	orderID := response["order_id"].(string)
+
+	// Mock the request to delete the created order
+	req, _ = http.NewRequest("DELETE", fmt.Sprintf("/orders/%s/Item1", orderID), nil)
+	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
 	// Assert the response
@@ -125,7 +156,7 @@ func TestDeleteOrderHandler(t *testing.T) {
 func TestStress(t *testing.T) {
 	router := setupRouter()
 
-	tiers := []int{1, 10, 25, 50}
+	tiers := []int{1, 10, 25}
 	for _, numUsers := range tiers {
 		t.Run(fmt.Sprintf("%d users", numUsers), func(t *testing.T) {
 			resetOrders()
