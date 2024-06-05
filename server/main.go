@@ -1,152 +1,233 @@
 package main
 
 import (
-	"log"
+	"fmt"
 	"net/http"
-	"time"
 
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/dynamodb"
+	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 type Order struct {
-	ID     string `json:"id"`
-	Item   string `json:"item"`
-	Amount int    `json:"amount"`
+	ID     string `json:"id" dynamodbav:"id"`
+	Item   string `json:"item" dynamodbav:"item"`
+	Amount int    `json:"amount" dynamodbav:"amount"`
 }
 
-var orders = []Order{
-	{ID: "1", Item: "Item 1", Amount: 10},
-	{ID: "2", Item: "Item 2", Amount: 20},
-	{ID: "3", Item: "Item 3", Amount: 30},
-}
-
-func getOrders(c *gin.Context) {
-	c.IndentedJSON(http.StatusOK, orders)
-}
-
-func getOrderById(c *gin.Context) {
-	id := c.Param("id")
-
-	for _, a := range orders {
-		if a.ID == id {
-			c.IndentedJSON(http.StatusOK, a)
-			return
-		}
-	}
-	c.IndentedJSON(http.StatusNotFound, gin.H{"message": "order not found"})
-}
-
-func createOrder(c *gin.Context) {
-	var newOrder Order
-
-	if err := c.BindJSON(&newOrder); err != nil {
-		return
-	}
-
-	orders = append(orders, newOrder)
-	c.IndentedJSON(http.StatusCreated, newOrder)
-}
-
-func updateOrder(c *gin.Context) {
-	id := c.Param("id")
-	var updatedOrder Order
-
-	if err := c.BindJSON(&updatedOrder); err != nil {
-		return
-	}
-
-	for i, a := range orders {
-		if a.ID == id {
-			orders[i] = updatedOrder
-			c.IndentedJSON(http.StatusOK, updatedOrder)
-			return
-		}
-	}
-	c.IndentedJSON(http.StatusNotFound, gin.H{"message": "order not found"})
-}
-
-func increaseAmount(c *gin.Context) {
-	id := c.Param("id")
-	var amount struct {
-		Amount int `json:"amount"`
-	}
-
-	if err := c.BindJSON(&amount); err != nil {
-		return
-	}
-
-	for i, a := range orders {
-		if a.ID == id {
-			orders[i].Amount += amount.Amount
-			c.IndentedJSON(http.StatusOK, orders[i])
-			return
-		}
-	}
-	c.IndentedJSON(http.StatusNotFound, gin.H{"message": "order not found"})
-}
-
-func decreaseAmount(c *gin.Context) {
-	id := c.Param("id")
-	var amount struct {
-		Amount int `json:"amount"`
-	}
-
-	if err := c.BindJSON(&amount); err != nil {
-		return
-	}
-
-	for i, a := range orders {
-		if a.ID == id {
-			orders[i].Amount -= amount.Amount
-			if orders[i].Amount < 0 {
-				orders[i].Amount = 0
-			}
-			c.IndentedJSON(http.StatusOK, orders[i])
-			return
-		}
-	}
-	c.IndentedJSON(http.StatusNotFound, gin.H{"message": "order not found"})
-}
-
-func deleteOrder(c *gin.Context) {
-	id := c.Param("id")
-
-	log.Printf("Delete request received for ID: %s", id)
-
-	for i, a := range orders {
-		if a.ID == id {
-			orders = append(orders[:i], orders[i+1:]...)
-			c.IndentedJSON(http.StatusOK, gin.H{"message": "order deleted"})
-			return
-		}
-	}
-	c.IndentedJSON(http.StatusNotFound, gin.H{"message": "order not found"})
-}
+var svc *dynamodb.DynamoDB
 
 func main() {
-	r := gin.Default()
-
-	// Enable CORS with custom configuration
-	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:3000"},
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE"},
-		AllowHeaders:     []string{"Origin", "Content-Type"},
-		ExposeHeaders:    []string{"Content-Length"},
-		AllowCredentials: true,
-		AllowOriginFunc: func(origin string) bool {
-			return origin == "http://localhost:3000"
-		},
-		MaxAge: 12 * time.Hour,
+	// Initialize AWS session
+	sess := session.Must(session.NewSession(&aws.Config{
+		Region: aws.String("us-east-2"),
 	}))
 
-	r.GET("/orders", getOrders)
-	r.GET("/orders/:id", getOrderById)
-	r.POST("/orders", createOrder)
-	r.PUT("/orders/:id", updateOrder)
-	r.PUT("/orders/:id/increase", increaseAmount)
-	r.PUT("/orders/:id/decrease", decreaseAmount)
-	r.DELETE("/orders/:id", deleteOrder)
+	// Initialize DynamoDB client
+	svc = dynamodb.New(sess)
 
+	// Initialize Gin router
+	r := gin.Default()
+
+	// Add CORS middleware
+	r.Use(cors.Default())
+
+	// Define routes
+	r.POST("/orders", createOrderHandler)
+	r.GET("/orders/:id/:item", getOrderHandler)
+	r.GET("/orders", getAllOrdersHandler)
+	r.PUT("/orders/:id/:item", updateOrderHandler)
+	r.DELETE("/orders/:id/:item", deleteOrderHandler)
+
+	// Start the server
 	r.Run(":8080")
+}
+
+// Handlers
+func createOrderHandler(c *gin.Context) {
+	var order Order
+	if err := c.ShouldBindJSON(&order); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Generate a new UUID for the order ID
+	order.ID = uuid.New().String()
+
+	existingOrder, _ := getOrder(svc, order.ID, order.Item)
+	if existingOrder != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Order with this ID and Item already exists"})
+		return
+	}
+
+	err := createOrder(svc, order)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Order created successfully", "order_id": order.ID})
+}
+
+func getOrderHandler(c *gin.Context) {
+	id := c.Param("id")
+	item := c.Param("item")
+	order, err := getOrder(svc, id, item)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if order == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Order not found"})
+		return
+	}
+	c.JSON(http.StatusOK, order)
+}
+
+func getAllOrdersHandler(c *gin.Context) {
+	orders, err := getAllOrders(svc)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, orders)
+}
+
+func updateOrderHandler(c *gin.Context) {
+	id := c.Param("id")
+	item := c.Param("item")
+	var order Order
+	if err := c.ShouldBindJSON(&order); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	order.ID = id   // Ensure the ID in the path matches the ID in the JSON body
+	order.Item = item // Ensure the Item in the path matches the Item in the JSON body
+	err := updateOrder(svc, order)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Order updated successfully"})
+}
+
+func deleteOrderHandler(c *gin.Context) {
+	id := c.Param("id")
+	item := c.Param("item")
+	err := deleteOrder(svc, id, item)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Order deleted successfully"})
+}
+
+// DynamoDB CRUD operations
+func createOrder(svc *dynamodb.DynamoDB, order Order) error {
+	av, err := dynamodbattribute.MarshalMap(order)
+	if err != nil {
+		return fmt.Errorf("got error marshalling new order item: %v", err)
+	}
+
+	input := &dynamodb.PutItemInput{
+		Item:      av,
+		TableName: aws.String("orders"),
+	}
+
+	_, err = svc.PutItem(input)
+	if err != nil {
+		return fmt.Errorf("got error calling PutItem: %v", err)
+	}
+	return nil
+}
+
+func getOrder(svc *dynamodb.DynamoDB, id string, item string) (*Order, error) {
+	result, err := svc.GetItem(&dynamodb.GetItemInput{
+		TableName: aws.String("orders"),
+		Key: map[string]*dynamodb.AttributeValue{
+			"id": {
+				S: aws.String(id),
+			},
+			"item": {
+				S: aws.String(item),
+			},
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("got error calling GetItem: %v", err)
+	}
+
+	if result.Item == nil {
+		return nil, nil
+	}
+
+	order := new(Order)
+	err = dynamodbattribute.UnmarshalMap(result.Item, order)
+	if err != nil {
+		return nil, fmt.Errorf("got error unmarshalling order: %v", err)
+	}
+
+	return order, nil
+}
+
+func getAllOrders(svc *dynamodb.DynamoDB) ([]Order, error) {
+	// Use the DynamoDB Scan API to get all items in the table
+	input := &dynamodb.ScanInput{
+		TableName: aws.String("orders"),
+	}
+
+	result, err := svc.Scan(input)
+	if err != nil {
+		return nil, fmt.Errorf("got error calling Scan: %v", err)
+	}
+
+	var orders []Order
+	err = dynamodbattribute.UnmarshalListOfMaps(result.Items, &orders)
+	if err != nil {
+		return nil, fmt.Errorf("got error unmarshalling orders: %v", err)
+	}
+
+	return orders, nil
+}
+
+func updateOrder(svc *dynamodb.DynamoDB, order Order) error {
+	av, err := dynamodbattribute.MarshalMap(order)
+	if err != nil {
+		return fmt.Errorf("got error marshalling order item: %v", err)
+	}
+
+	input := &dynamodb.PutItemInput{
+		Item:      av,
+		TableName: aws.String("orders"),
+	}
+
+	_, err = svc.PutItem(input)
+	if err != nil {
+		return fmt.Errorf("got error calling PutItem: %v", err)
+	}
+	return nil
+}
+
+func deleteOrder(svc *dynamodb.DynamoDB, id string, item string) error {
+	input := &dynamodb.DeleteItemInput{
+		TableName: aws.String("orders"),
+		Key: map[string]*dynamodb.AttributeValue{
+			"id": {
+				S: aws.String(id),
+			},
+			"item": {
+				S: aws.String(item),
+			},
+		},
+	}
+
+	_, err := svc.DeleteItem(input)
+	if err != nil {
+		return fmt.Errorf("got error calling DeleteItem: %v", err)
+	}
+	return nil
 }
